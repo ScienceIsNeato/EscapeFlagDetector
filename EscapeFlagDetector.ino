@@ -1,9 +1,10 @@
 /****** Preprocessor Macros *****/
-#define RED 0
-#define ORANGE 1
-#define GREEN 2
-#define PURPLE 3
-#define BLUE 4
+#define NONE 0
+#define RED 1
+#define ORANGE 2
+#define GREEN 3
+#define PURPLE 4
+#define BLUE 5
 
 // MAX_COLOR_TOLERANCE is the maximum allowed devation between the expected and observed 
 // values across the three color channels to consider a color to be successfully detected
@@ -66,6 +67,12 @@ int sensor5_s1=25;
 int sensor5_s2=27;
 int sensor5_s3=29;
 int sensor5_out=31;
+
+// sensor statuses - initialized as all seeing no specific color
+int sensorColors[] = {NONE, NONE, NONE, NONE, NONE};
+
+// Solution to puzzle
+int sensorColorsSolution[] = {RED, ORANGE, GREEN, PURPLE, BLUE};
 
 //int s0=3,s1=4,s2=5,s3=6;
 //int out=2;
@@ -169,54 +176,118 @@ void ISR_INTO()
     }
     else if(flag==4)
      {
-       Serial.print("Found Red flag is :");
-       if(isColor(RED, sen1_countR, sen1_countG, sen1_countB))
+       setColorForSensor(1, sen1_countR, sen1_countG, sen1_countB);
+       if(sensorColors[0] == RED)
        {
+         
          Serial.println("\n\n!!!RED FLAG DETECTED IN FRONT OF SENSOR!!!\n\n");
        }
+       else
        {
-         Serial.println("Red flag not detected.\n");
+         Serial.print("Red flag not detected. Color found was:");
+         Serial.println(sensorColors[0]);
+         Serial.println("Where OTHER/NONE=0, RED=1, ORANGE=2, GREEN=3, PURPLE=4 and BLUE=5");
        }
      flag=0;
      }
        sen1_counter=0;
 }
 
-boolean isColor(int COLOR, byte red, byte green, byte blue)
+void setColorForSensor(int sensorNumber, byte red, byte green, byte blue)
 {
-   // This function takes in a color and returns whether or not the
-   // sensor is seeing that color
+  // This function takes in the RGB values of a sensor and attempts to assign a color.
+  // If the detected color isn't close enough to one of the solution colors, then 
+  // the color is set to NONE. 
+  // If mutliple matches are found, then the strongest match found is returned
    
-   int absDiff = 0; // variable to hold the absolute difference between the expected value of the color and the observed
+  int absDiff = 0; // variable to hold the absolute difference between the expected value of the color and the observed
+  int bestAbsDiff = 1000; // max difference is 255*3
    
-   
-   switch (COLOR) 
-   {
-    case RED:
-      absDiff = abs( ((int)red - RED_FLAG_R) + ((int)green - RED_FLAG_G) + ((int)blue - RED_FLAG_B) );
-      break;
-    case ORANGE:
-      absDiff = abs( ((int)red - ORANGE_FLAG_R) + ((int)green - ORANGE_FLAG_G) + ((int)blue - ORANGE_FLAG_B) );
-      break;
-    case BLUE:
-      absDiff = abs( ((int)red - BLUE_FLAG_R) + ((int)green - BLUE_FLAG_G) + ((int)blue - BLUE_FLAG_B) );
-      break;
-    case PURPLE:
-      absDiff = abs( ((int)red - PURPLE_FLAG_R) + ((int)green - PURPLE_FLAG_G) + ((int)blue - PURPLE_FLAG_B) );
-      break;
-    case GREEN:
-      absDiff = abs( ((int)red - GREEN_FLAG_R) + ((int)green - GREEN_FLAG_G) + ((int)blue - GREEN_FLAG_B) );
-      break;
-    }
-    
+  int closestMatch = NONE; // initialize as no color found
+
+  // RED
+  absDiff = abs((int)red - RED_FLAG_R) + abs((int)green - RED_FLAG_G) + abs((int)blue - RED_FLAG_B);
+  closestMatch = closestMatchingColor(absDiff, bestAbsDiff, RED, closestMatch);
+  
+  // ORANGE   
+  absDiff = abs((int)red - ORANGE_FLAG_R) + abs((int)green - ORANGE_FLAG_G) + abs((int)blue - ORANGE_FLAG_B);
+  closestMatch = closestMatchingColor(absDiff, bestAbsDiff, ORANGE, closestMatch);
+
+  // BLUE
+  absDiff = abs((int)red - BLUE_FLAG_R) + abs((int)green - BLUE_FLAG_G) + abs((int)blue - BLUE_FLAG_B);
+  closestMatch = closestMatchingColor(absDiff, bestAbsDiff, BLUE, closestMatch);
+
+  // PURPLE
+  absDiff = abs((int)red - PURPLE_FLAG_R) + abs((int)green - PURPLE_FLAG_G) + abs((int)blue - PURPLE_FLAG_B);
+  closestMatch = closestMatchingColor(absDiff, bestAbsDiff, PURPLE, closestMatch);
+
+  // GREEN
+  absDiff = abs((int)red - GREEN_FLAG_R) + abs((int)green - GREEN_FLAG_G) + abs((int)blue - GREEN_FLAG_B);
+  closestMatch = closestMatchingColor(absDiff, bestAbsDiff, GREEN, closestMatch);
+
+  // Subtract 1 from sensor number to get position in array
+  sensorColors[sensorNumber - 1] = closestMatch;
+  
+  return; 
+}
+
+int closestMatchingColor(int absDiff, int &bestAbsDiff, int COLOR, int currentBestMatch)
+{
+  // Function takes in the absdiff between the curretn color and a solution color, as well as the
+  // color under consideration. If the values are within the qualification threshold, then the color passed
+  // in is returned. Otherwise, NONE is returned.
+  
+  // If a better match has already been found, do not update the best matched color
+  
   if (absDiff < MAX_COLOR_TOLERANCE)
   {
-    return true;
+    // One of the solution colors has been detected
+    if(absDiff < bestAbsDiff)
+    {
+      // this is the best match found so far
+      bestAbsDiff = absDiff; // as bestAbsDiff is passed by reference, it will be updated by the function
+      return COLOR;
+    }
+    else
+    {
+      return currentBestMatch;  
+    }
   }
   else
   {
-    return false;
-  }  
+    // no color has been found
+    return NONE;  
+  }
+}
+boolean isCorrectSolution()
+{
+   // This function checks the detected colors against the solution to the puzzle
+   // and returns true if the puzzle has been solved
+   
+   if(!(sensorColors[0] == sensorColorsSolution[0]))
+   {
+     return false;
+   }
+   if(!(sensorColors[1] == sensorColorsSolution[1]))
+   {
+     return false;
+   }
+   if(!(sensorColors[2] == sensorColorsSolution[2]))
+   {
+     return false;
+   }
+   if(!(sensorColors[3] == sensorColorsSolution[3]))
+   {
+     return false;
+   }
+   if(!(sensorColors[4] == sensorColorsSolution[4]))
+   {
+     return false;
+   }
+   
+   
+   // All sensors are reading the correct colors
+   return true;
 }
 void loop()
  {
