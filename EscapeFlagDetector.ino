@@ -2,7 +2,7 @@
 #include <Timer.h>
 /****** Preprocessor Macros *****/
 // Debug settings
-#define DEBUG_MODE 0
+#define DEBUG_MODE 1
 
 #define NONE 0
 #define RED 1
@@ -20,18 +20,12 @@ int MAX_COLOR_TOLERANCE = 15;
 
 // row 0 corresponds to RED flag, row 1 to ORANGE, etc.
 // col 0=red, col1=green, col2=blue
-int flagColors[5][3] = {
- 
+int flagColors[5][3] = { 
   {85,  43,  44  }, // RED
- 
-  {101,  52,  45  }, // ORANGE
-  
-  {38,  49,  43  }, // GREEN
-    
-  {46,  48,  64  }, // PURPLE
- 
+  {101,  52,  45  }, // ORANGE 
+  {38,  49,  43  }, // GREEN    
+  {46,  48,  64  }, // PURPLE 
   {38,  50, 70  } // BLUE
- 
 };
 
 /***** GLOBAL VARIABLES *****/
@@ -59,8 +53,8 @@ int sensor2_s0=22;
 int sensor2_s1=24;
 int sensor2_s2=26;
 int sensor2_s3=28;
-int sensor2_out=30;
-int sensor2_LED=11;
+int sensor2_out=18;
+//int sensor2_LED=18;
 
 // Color Sensor Three (Looking for green)
 int sensor3_s0=32;
@@ -94,6 +88,8 @@ int sensorColorsSolution[] = {RED, ORANGE, GREEN, PURPLE, BLUE};
 
 int sensor1_flag=0;
 int sen1_counter=0;
+int sensor2_flag=0;
+int sen2_counter=0;
 int sensor_countR[5] = {0,0,0,0,0}; // red counts for sensors 1-5
 int sensor_countG[5] = {0,0,0,0,0};
 int sensor_countB[5] = {0,0,0,0,0};
@@ -119,7 +115,7 @@ void setup()
  pinMode(sensor2_s1,OUTPUT); 
  pinMode(sensor2_s2,OUTPUT);
  pinMode(sensor2_s3,OUTPUT);
- pinMode(sensor2_LED,OUTPUT); 
+ //pinMode(sensor2_LED,OUTPUT); 
  // Sensor 3
  pinMode(sensor3_s0,OUTPUT);
  pinMode(sensor3_s1,OUTPUT); 
@@ -143,13 +139,22 @@ void TCS()
 {
    digitalWrite(sensor1_s1,HIGH);
    digitalWrite(sensor1_s0,LOW);
+   digitalWrite(sensor2_s1,HIGH);
+   digitalWrite(sensor2_s0,LOW);
    sensor1_flag=0;
-   attachInterrupt(0, ISR_INTO, CHANGE);
+   sensor2_flag=0;
+   attachInterrupt(digitalPinToInterrupt(2), ISR_INTO_1, CHANGE);
+   attachInterrupt(digitalPinToInterrupt(18), ISR_INTO_2, CHANGE);
    timer_for_sensor_1_init();
 }
-void ISR_INTO()
+
+void ISR_INTO_1()
 {
   sen1_counter++;
+}
+void ISR_INTO_2()
+{
+  sen2_counter++;
 }
  
 void timer_for_sensor_1_init(void)
@@ -160,7 +165,7 @@ void timer_for_sensor_1_init(void)
    TIMSK2 = 0x01; //allow interrupt
 }
 
-ISR(TIMER2_OVF_vect)//the timer 2, 10ms interrupt overflow again. Internal overflow interrupt executive function
+ISR(TIMER2_OVF_vect, ISR_NOBLOCK)//the timer 2, 10ms interrupt overflow again. Internal overflow interrupt executive function
 {
   
  TCNT2=100;
@@ -197,6 +202,41 @@ ISR(TIMER2_OVF_vect)//the timer 2, 10ms interrupt overflow again. Internal overf
   }
   
 sen1_counter=0; // reset counter
+
+/*****************************************/
+sensor2_flag++;
+ if(sensor2_flag==1)
+ {
+    sen2_counter=0;
+ }
+ else if(sensor2_flag==2)
+ {
+  digitalWrite(sensor2_s2,LOW);
+  digitalWrite(sensor2_s3,LOW); 
+  sensor_countR[1]=sen2_counter/1.051;
+  digitalWrite(sensor2_s2,HIGH);
+  digitalWrite(sensor2_s3,HIGH);   
+ }
+ else if(sensor2_flag==3)
+  {
+   sensor_countG[1]=sen2_counter/1.0157;
+   digitalWrite(sensor2_s2,LOW);
+   digitalWrite(sensor2_s3,HIGH); 
+ 
+  }
+ else if(sensor2_flag==4)
+ {
+   sensor_countB[1]=sen2_counter/1.114;
+   digitalWrite(sensor2_s2,LOW);
+   digitalWrite(sensor2_s3,LOW);
+ }
+ else
+ {
+   sensor2_flag=0; 
+   TIMSK2 = 0x00;
+  }
+  
+sen2_counter=0; // reset counter
 }
 
 void setColorForSensor(int sensorNumber, int red, int green, int blue)
@@ -428,8 +468,12 @@ void loop()
  {
   delay(10);
   TCS();
+  //TCS_2();
   setColorForSensor(1, (int)sensor_countR[0], (int)sensor_countG[0], (int)sensor_countB[0]);
-  printColor(sensorColors[0]);
+  setColorForSensor(2, (int)sensor_countR[1], (int)sensor_countG[1], (int)sensor_countB[1]);
+  printColor(1, sensorColors[0]);
+  printColor(2, sensorColors[1]);
+  Serial.println("");
   if(DEBUG_MODE)
   {
      if(sensorColors[0] == RED)
@@ -453,22 +497,31 @@ void loop()
        Serial.print("\nRed flag not detected. Color found was:");
        Serial.println(sensorColors[0]);
        Serial.println("Where OTHER/NONE=0, RED=1, ORANGE=2, GREEN=3, PURPLE=4 and BLUE=5");
-       Serial.print("red=");
+       Serial.print("red1=");
        Serial.println(sensor_countR[0],DEC);
-       Serial.print("green=");
+       Serial.print("green1=");
        Serial.println(sensor_countG[0],DEC);
-       Serial.print("blue=");
-       Serial.println(sensor_countB[0],DEC);    
+       Serial.print("blue1=");
+       Serial.println(sensor_countB[0],DEC);  
+     Serial.println("Where OTHER/NONE=0, RED=1, ORANGE=2, GREEN=3, PURPLE=4 and BLUE=5");
+       Serial.print("red2=");
+       Serial.println(sensor_countR[1],DEC);
+       Serial.print("green2=");
+       Serial.println(sensor_countG[1],DEC);
+       Serial.print("blue2=");
+       Serial.println(sensor_countB[1],DEC);   
      }
    }
-   delay(300);       
+   delay(1000);       
  }
  
- void printColor(int sensor)
+ void printColor(int sensor, int color)
  {
   
-  Serial.print("*** Flag detected looks ");
-  switch (sensor) 
+  Serial.print("*** Flag for sensor ");
+  Serial.print(sensor);
+  Serial.print(" detected looks ");
+  switch (color) 
   {
     case 1:
       Serial.println("RED ***");
