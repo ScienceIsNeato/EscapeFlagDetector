@@ -1,8 +1,8 @@
+#include <Event.h>
+#include <Timer.h>
 /****** Preprocessor Macros *****/
 // Debug settings
 #define DEBUG_MODE 0
-int polling_frequency = 100; // Get results every 1000 ms
-int polling_counter=0;
 
 #define NONE 0
 #define RED 1
@@ -13,31 +13,39 @@ int polling_counter=0;
 
 // MAX_COLOR_TOLERANCE is the maximum allowed devation between the expected and observed 
 // values across the three color channels to consider a color to be successfully detected
-int MAX_COLOR_TOLERANCE = 50;
+int MAX_COLOR_TOLERANCE = 15;
 
 // These values are have been experimentally determined to be the average readings for the various flags
 // For now, these are guesses
-#define GREEN_FLAG_R 0
-#define GREEN_FLAG_G 255
-#define GREEN_FLAG_B 0
 
-#define RED_FLAG_R 177
-#define RED_FLAG_G 165
-#define RED_FLAG_B 58
-
-#define ORANGE_FLAG_R 255
-#define ORANGE_FLAG_G 165
-#define ORANGE_FLAG_B 0
-
-#define PURPLE_FLAG_R 160
-#define PURPLE_FLAG_G 32
-#define PURPLE_FLAG_B 240
-
-#define BLUE_FLAG_R 0
-#define BLUE_FLAG_G 0
-#define BLUE_FLAG_B 255
+// row 0 corresponds to RED flag, row 1 to ORANGE, etc.
+// col 0=red, col1=green, col2=blue
+int flagColors[5][3] = {
+ 
+  {85,  43,  44  }, // RED
+ 
+  {101,  52,  45  }, // ORANGE
+  
+  {38,  49,  43  }, // GREEN
+    
+  {46,  48,  64  }, // PURPLE
+ 
+  {38,  50, 70  } // BLUE
+ 
+};
 
 /***** GLOBAL VARIABLES *****/
+const int buttonPin = 20;     // the number of the big red button pin
+Timer t; // timer for recalibrating the sensors
+
+long startTime;                    // start time for stop watch
+long elapsedTime;                  // elapsed time for stop watch
+long lastButtonPush;               // time or last valid button press
+boolean timerActive = false;
+const int debounceTime = 100;      // ignore button presses within this time window
+int buttonCnt = 0;                 // counter for button events
+const int timeWindow = 5000;       // you have a 5 second window to recalibrate the sensors 
+
 // Color Sensor One (Looking for red)
 int sensor1_s0=3;
 int sensor1_s1=4;
@@ -84,23 +92,23 @@ int sensorColors[] = {NONE, NONE, NONE, NONE, NONE};
 // Solution to puzzle
 int sensorColorsSolution[] = {RED, ORANGE, GREEN, PURPLE, BLUE};
 
-//int s0=3,s1=4,s2=5,s3=6;
-//int out=2;
-int flag=0;
-byte sen1_counter=0;
-byte sen1_countR=0,sen1_countG=0,sen1_countB=0;
+int sensor1_flag=0;
+int sen1_counter=0;
+int sensor_countR[5] = {0,0,0,0,0}; // red counts for sensors 1-5
+int sensor_countG[5] = {0,0,0,0,0};
+int sensor_countB[5] = {0,0,0,0,0};
 
 void setup()
  {
- // Open serial connection with console
  Serial.begin(115200);
+
+ // initialize the pushbutton pin as an input:
+ pinMode(buttonPin, INPUT);
+ // Attach an interrupt to the ISR vector
+ // Note that when using pin 21 the button has to be attached to ground instead of 5v 
+ // because interrupt pins 20 and 21 are always high
+ attachInterrupt(digitalPinToInterrupt(buttonPin), pin_ISR, CHANGE);
  
- // Declare sensor pins as outputs
- //pinMode(s0,OUTPUT);
- //pinMode(s1,OUTPUT); 
- //pinMode(s2,OUTPUT);
- //pinMode(s3,OUTPUT);
- // Sensor 1
  pinMode(sensor1_s0,OUTPUT);
  pinMode(sensor1_s1,OUTPUT); 
  pinMode(sensor1_s2,OUTPUT);
@@ -130,135 +138,65 @@ void setup()
  pinMode(sensor5_s2,OUTPUT);
  pinMode(sensor5_s3,OUTPUT);
  pinMode(sensor5_LED,OUTPUT); 
- }
+}
 void TCS()
- {
- flag=0;  
- digitalWrite(sensor1_s1,HIGH);
- digitalWrite(sensor1_s0,HIGH);
- digitalWrite(sensor1_s2,LOW);
- digitalWrite(sensor1_s3,LOW);
- digitalWrite(11,HIGH); // LED
- attachInterrupt(digitalPinToInterrupt(sensor1_out), ISR_INTO, LOW);
- 
- // IMPORTANT - On the Mega, valid interrupt pins are 2, 3, 18, 19, 20, 21. 
- // We'll need to remap all of the 'sensorX_out' pins to one of these options.
- // It would appear the original programmers took the unrecommended shortcut
- // of simply assuming that interrupt 0 corresponds to pin 2 on a stock arduino
- timer0_init();
-
- }
-void ISR_INTO()
- {
- sen1_counter++;
- }
- 
- 
- void timer0_init(void)
- {
-  TCCR2A=0x00;
-  TCCR2B=0x07;   //the clock frequency source 1024 points
-  TCNT2= 100;    //10 ms overflow again
-  TIMSK2 = 0x01; //allow interrupt
- }
- 
- 
- int i=0;
- 
- 
- ISR(TIMER2_OVF_vect)//the timer 2, 10ms interrupt overflow again. Internal overflow interrupt executive function
 {
-    TCNT2=100;
-    flag++;
-    if(polling_counter > 32,766)
-    {
-      polling_counter = 0;
-    }
-    else
-    {
-      polling_counter++;
-    }
+   digitalWrite(sensor1_s1,HIGH);
+   digitalWrite(sensor1_s0,LOW);
+   sensor1_flag=0;
+   attachInterrupt(0, ISR_INTO, CHANGE);
+   timer_for_sensor_1_init();
+}
+void ISR_INTO()
+{
+  sen1_counter++;
+}
+ 
+void timer_for_sensor_1_init(void)
+{
+   TCCR2A=0x00;
+   TCCR2B=0x07; //the clock frequency source 1024 points
+   TCNT2= 100;    //10 ms overflow again
+   TIMSK2 = 0x01; //allow interrupt
+}
 
- if(flag==1)
+ISR(TIMER2_OVF_vect)//the timer 2, 10ms interrupt overflow again. Internal overflow interrupt executive function
+{
+  
+ TCNT2=100;
+ sensor1_flag++;
+ if(sensor1_flag==1)
+ {
+    sen1_counter=0;
+ }
+ else if(sensor1_flag==2)
+ {
+  digitalWrite(sensor1_s2,LOW);
+  digitalWrite(sensor1_s3,LOW); 
+  sensor_countR[0]=sen1_counter/1.051;
+  digitalWrite(sensor1_s2,HIGH);
+  digitalWrite(sensor1_s3,HIGH);   
+ }
+ else if(sensor1_flag==3)
   {
-    sen1_countR=sen1_counter;
-    if(polling_counter % polling_frequency < 4)
-    {
-      if(DEBUG_MODE)
-      {
-        Serial.print("red=");
-        Serial.println(sen1_countR,DEC);
-      }
-    }
-    digitalWrite(sensor1_s2,HIGH);
-    digitalWrite(sensor1_s3,HIGH);
+   sensor_countG[0]=sen1_counter/1.0157;
+   digitalWrite(sensor1_s2,LOW);
+   digitalWrite(sensor1_s3,HIGH); 
+ 
   }
-  else if(flag==2)
-   {
-    sen1_countG=sen1_counter;
-    if(polling_counter % polling_frequency < 4)    
-    {
-      if(DEBUG_MODE)
-      {
-        Serial.print("green=");
-        Serial.println(sen1_countG,DEC);
-      }
-    }
-    digitalWrite(sensor1_s2,LOW);
-    digitalWrite(sensor1_s3,HIGH);
-   }
-   else if(flag==3)
-    {
-    sen1_countB=sen1_counter;
-    if(polling_counter % polling_frequency < 4)
-    {
-      if(DEBUG_MODE)
-      {
-        Serial.print("blue=");
-        Serial.println(sen1_countB,DEC);
-        Serial.println("\n"); 
-      }
-    }
-    digitalWrite(sensor1_s2,LOW);
-    digitalWrite(sensor1_s3,LOW);
-   
-    }
-    else if(flag==4)
-   {
-     setColorForSensor(1, (int)sen1_countR, (int)sen1_countG, (int)sen1_countB);
-     if(sensorColors[0] == RED)
-     {
-      if(polling_counter % polling_frequency < 4)
-      {   
-        if(DEBUG_MODE)
-        {
-          Serial.println("*******************************************");
-          Serial.println("*******************************************");
-          Serial.println("*******************************************");
-          Serial.println("\n\n!!!RED FLAG DETECTED IN FRONT OF SENSOR!!!\n\n");
-          Serial.println("*******************************************");
-          Serial.println("*******************************************");
-        }
-       }
-     }
-     else
-     {
-      if(polling_counter % polling_frequency < 4)
-      {
-         Serial.println(".");
-         if(DEBUG_MODE)
-         {
-           Serial.print("\nRed flag not detected. Color found was:");
-           Serial.println(sensorColors[0]);
-           Serial.println("Where OTHER/NONE=0, RED=1, ORANGE=2, GREEN=3, PURPLE=4 and BLUE=5");
-         }
-       }
-     }
-     
-     flag=0;
-   }
-     
-   sen1_counter=0;
+ else if(sensor1_flag==4)
+ {
+   sensor_countB[0]=sen1_counter/1.114;
+   digitalWrite(sensor1_s2,LOW);
+   digitalWrite(sensor1_s3,LOW);
+ }
+ else
+ {
+   sensor1_flag=0; 
+   TIMSK2 = 0x00;
+  }
+  
+sen1_counter=0; // reset counter
 }
 
 void setColorForSensor(int sensorNumber, int red, int green, int blue)
@@ -275,44 +213,100 @@ void setColorForSensor(int sensorNumber, int red, int green, int blue)
   int closestMatch = NONE; // initialize as no color found
 
   // RED
-  absDiff = abs(red - RED_FLAG_R) + abs(green - RED_FLAG_G) + abs(blue - RED_FLAG_B);
+  absDiff = abs(red - flagColors[0][0]) + abs(green - flagColors[0][1]) + abs(blue - flagColors[0][2]);
   closestMatch = closestMatchingColor(absDiff, bestAbsDiff, RED, closestMatch);
   if(DEBUG_MODE)
   {
-    if(polling_counter % polling_frequency < 4)
-    {
       Serial.print("Abs diff for red is:");
       Serial.print(absDiff);
-      Serial.print("red:");
-      Serial.print(red, DEC);
-      Serial.print("green:");
-      Serial.print(green,DEC);
-      Serial.print("blue:");
-      Serial.print(blue,DEC);
-    }
+      Serial.print("Closest match after red:");
+      Serial.println(closestMatch);
   }
 
   // ORANGE   
-  absDiff = abs((int)red - ORANGE_FLAG_R) + abs((int)green - ORANGE_FLAG_G) + abs((int)blue - ORANGE_FLAG_B);
+  absDiff = abs((int)red - flagColors[1][0]) + abs((int)green - flagColors[1][1]) + abs((int)blue - flagColors[1][2]);
   closestMatch = closestMatchingColor(absDiff, bestAbsDiff, ORANGE, closestMatch);
-
-  // BLUE
-  absDiff = abs((int)red - BLUE_FLAG_R) + abs((int)green - BLUE_FLAG_G) + abs((int)blue - BLUE_FLAG_B);
-  closestMatch = closestMatchingColor(absDiff, bestAbsDiff, BLUE, closestMatch);
-
-  // PURPLE
-  absDiff = abs((int)red - PURPLE_FLAG_R) + abs((int)green - PURPLE_FLAG_G) + abs((int)blue - PURPLE_FLAG_B);
-  closestMatch = closestMatchingColor(absDiff, bestAbsDiff, PURPLE, closestMatch);
+  if(DEBUG_MODE)
+  {
+      Serial.print("Abs diff for orange is:");
+      Serial.print(absDiff);
+      Serial.print("Closest match after orange:");
+      Serial.println(closestMatch);
+  }
 
   // GREEN
-  absDiff = abs((int)red - GREEN_FLAG_R) + abs((int)green - GREEN_FLAG_G) + abs((int)blue - GREEN_FLAG_B);
+  absDiff = abs((int)red - flagColors[2][0]) + abs((int)green - flagColors[2][1]) + abs((int)blue - flagColors[2][2]);
   closestMatch = closestMatchingColor(absDiff, bestAbsDiff, GREEN, closestMatch);
+  if(DEBUG_MODE)
+  {
+      Serial.print("Abs diff for green is:");
+      Serial.print(absDiff);
+      Serial.print("Closest match after blue:");
+      Serial.println(closestMatch);
+  }
+
+  // PURPLE
+  absDiff = abs((int)red - flagColors[3][0]) + abs((int)green - flagColors[3][1]) + abs((int)blue - flagColors[3][2]);
+  closestMatch = closestMatchingColor(absDiff, bestAbsDiff, PURPLE, closestMatch);
+  if(DEBUG_MODE)
+  {
+      Serial.print("Abs diff for purple is:");
+      Serial.print(absDiff);
+      Serial.print("Closest match after purple:");
+      Serial.println(closestMatch);
+  }
+
+  // BLUE
+  absDiff = abs((int)red - flagColors[4][0]) + abs((int)green - flagColors[4][1]) + abs((int)blue - flagColors[4][2]);
+  closestMatch = closestMatchingColor(absDiff, bestAbsDiff, BLUE, closestMatch);
+  if(DEBUG_MODE)
+  {
+      Serial.print("Abs diff for blue is:");
+      Serial.print(absDiff);
+      Serial.print("Closest match after green:");
+      Serial.println(closestMatch);
+  }
 
   // Subtract 1 from sensor number to get position in array
   sensorColors[sensorNumber - 1] = closestMatch;
   
   return; 
 }
+
+//int rollingAbsDiff(int expVal, int obsVal, int maxRange)
+//{
+//  // This function take in an experimental value and an observed value and returns the difference
+//  // of the shortest rolling difference from eihter direction (example, if maxRange = 255, the obsVal is 254, and the expVal is 3, then
+//  // the return would be 5 instead of 252)
+//  
+//  // THIS FUNCTION IS WRONG!! Can't simply subtract. Need to test in isolation before rolling in. 
+//  
+//  int leftDiff;
+//  int rightDiff;
+//  
+//  leftDiff = expVal - obsVal;
+//  rightDiff = obsVal - expVal;
+//  
+//  if(leftDiff < 0)
+//  {
+//    leftDiff+=maxRange;  
+//  }
+//  
+//  if(rightDiff < 0)
+//  {
+//    rightDiff+=maxRange;  
+//  }
+//  
+//  if(leftDiff < rightDiff)
+//  {
+//    return leftDiff;  
+//  }
+//  else
+//  {
+//    return rightDiff;  
+//  }
+//  
+//}
 
 int closestMatchingColor(int absDiff, int &bestAbsDiff, int COLOR, int currentBestMatch)
 {
@@ -321,10 +315,8 @@ int closestMatchingColor(int absDiff, int &bestAbsDiff, int COLOR, int currentBe
   // in is returned. Otherwise, NONE is returned.
   
   // If a better match has already been found, do not update the best matched color
-  
   if (absDiff < MAX_COLOR_TOLERANCE)
-  {
-    
+  {    
     // One of the solution colors has been detected
     if(absDiff < bestAbsDiff)
     {
@@ -372,8 +364,129 @@ boolean isCorrectSolution()
    return true;
 }
 
+void pin_ISR() {
+  if(!timerActive)
+  {
+    startTime = millis();  
+    lastButtonPush = startTime;
+    timerActive = true;
+    if(DEBUG_MODE)
+    {
+      Serial.println("Timer started.");
+    }
+    int dunno = t.after(timeWindow, timerExpired);
+    buttonCnt = 1;
+  }
+  else
+  {
+    elapsedTime = millis()-lastButtonPush;
+    
+    if(elapsedTime > debounceTime)
+    {
+      buttonCnt++;
+      lastButtonPush = millis();
+      if (buttonCnt % 2 == 0)
+      {
+        if(!DEBUG_MODE)
+        {
+          Serial.print("Button has been pressed ");
+          Serial.print(buttonCnt/2);
+          Serial.println(" times.");
+          Serial.print("Button pushed! elapsed time =");
+          Serial.println(elapsedTime);
+        }
+        if(buttonCnt > 8)
+        {
+          // Button has been pressed 4 times in 5 seconds - recalibrate sensors
+          recalibrateSensors();
+          timerActive = false; 
+        }
+      }
+    }
+  }
+}
+
+void recalibrateSensors()
+{
+  for(int i = 0; i < 5; i++)
+  {
+    flagColors[i][0] = sensor_countR[i];
+    flagColors[i][1] = sensor_countG[i];
+    flagColors[i][2] = sensor_countB[i];
+  }
+  Serial.println("RECALIBRATED!**************");
+  return;
+}
+
+void timerExpired()
+{
+  timerActive = false;
+  Serial.println("Timer expired."); 
+}
+
 void loop()
  {
+  delay(10);
   TCS();
-  while(1);
+  setColorForSensor(1, (int)sensor_countR[0], (int)sensor_countG[0], (int)sensor_countB[0]);
+  printColor(sensorColors[0]);
+  if(DEBUG_MODE)
+  {
+     if(sensorColors[0] == RED)
+     {
+        Serial.println("*******************************************");
+        Serial.println("*******************************************");
+        Serial.println("*******************************************");
+        Serial.println("\n\n!!!RED FLAG DETECTED IN FRONT OF SENSOR!!!\n\n");
+        Serial.println("*******************************************");
+        Serial.println("*******************************************");
+        Serial.print("red=");
+        Serial.println(sensor_countR[0],DEC);
+        Serial.print("green=");
+        Serial.println(sensor_countG[0],DEC);
+        Serial.print("blue=");
+        Serial.println(sensor_countB[0],DEC);
+     }
+     
+     else
+     {
+       Serial.print("\nRed flag not detected. Color found was:");
+       Serial.println(sensorColors[0]);
+       Serial.println("Where OTHER/NONE=0, RED=1, ORANGE=2, GREEN=3, PURPLE=4 and BLUE=5");
+       Serial.print("red=");
+       Serial.println(sensor_countR[0],DEC);
+       Serial.print("green=");
+       Serial.println(sensor_countG[0],DEC);
+       Serial.print("blue=");
+       Serial.println(sensor_countB[0],DEC);    
+     }
+   }
+   delay(300);       
+ }
+ 
+ void printColor(int sensor)
+ {
+  
+  Serial.print("*** Flag detected looks ");
+  switch (sensor) 
+  {
+    case 1:
+      Serial.println("RED ***");
+      break;
+    case 2:
+      Serial.println("ORANGE ***");
+      break;
+    case 3:
+      Serial.println("GREEN ***");
+      break;
+    case 4:
+      Serial.println("PURPLE ***");
+      break;
+    case 5:
+      Serial.println("BLUE ***");
+      break;
+    default: 
+      Serial.println("n/a :( ***");
+    break;
+  } 
  }
