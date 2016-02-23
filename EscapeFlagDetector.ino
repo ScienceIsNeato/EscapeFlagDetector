@@ -2,7 +2,7 @@
 #include <Timer.h>
 /****** Preprocessor Macros *****/
 // Debug settings
-#define DEBUG_MODE 1
+#define DEBUG_MODE 0
 
 #define NONE 0
 #define RED 1
@@ -29,7 +29,7 @@ int flagColors[5][3] = {
 };
 
 /***** GLOBAL VARIABLES *****/
-const int buttonPin = 20;     // the number of the big red button pin
+const int buttonPin = 2;     // the number of the big red button pin
 Timer t; // timer for recalibrating the sensors
 
 long startTime;                    // start time for stop watch
@@ -41,11 +41,11 @@ int buttonCnt = 0;                 // counter for button events
 const int timeWindow = 5000;       // you have a 5 second window to recalibrate the sensors 
 
 // Color Sensor One (Looking for red)
-int sensor1_s0=3;
-int sensor1_s1=4;
-int sensor1_s2=5;
-int sensor1_s3=6;
-int sensor1_out=2;
+int sensor1_s0=4;
+int sensor1_s1=5;
+int sensor1_s2=6;
+int sensor1_s3=7;
+int sensor1_out=3;
 int sensor1_LED=11;
 
 // Color Sensor Two (Looking for orange)
@@ -61,8 +61,8 @@ int sensor3_s0=32;
 int sensor3_s1=34;
 int sensor3_s2=36;
 int sensor3_s3=38;
-int sensor3_out=40;
-int sensor3_LED=11;
+int sensor3_out=19;
+//int sensor3_LED=11;
 
 // Color Sensor Four (Looking for purple)
 int sensor4_s0=42;
@@ -90,6 +90,8 @@ int sensor1_flag=0;
 int sen1_counter=0;
 int sensor2_flag=0;
 int sen2_counter=0;
+int sensor3_flag=0;
+int sen3_counter=0;
 int sensor_countR[5] = {0,0,0,0,0}; // red counts for sensors 1-5
 int sensor_countG[5] = {0,0,0,0,0};
 int sensor_countB[5] = {0,0,0,0,0};
@@ -121,7 +123,7 @@ void setup()
  pinMode(sensor3_s1,OUTPUT); 
  pinMode(sensor3_s2,OUTPUT);
  pinMode(sensor3_s3,OUTPUT);
- pinMode(sensor3_LED,OUTPUT); 
+ //pinMode(sensor3_LED,OUTPUT); 
  // Sensor 4
  pinMode(sensor4_s0,OUTPUT);
  pinMode(sensor4_s1,OUTPUT); 
@@ -141,10 +143,17 @@ void TCS()
    digitalWrite(sensor1_s0,LOW);
    digitalWrite(sensor2_s1,HIGH);
    digitalWrite(sensor2_s0,LOW);
+   digitalWrite(sensor3_s1,HIGH);
+   digitalWrite(sensor3_s0,LOW);
+   
    sensor1_flag=0;
    sensor2_flag=0;
-   attachInterrupt(digitalPinToInterrupt(2), ISR_INTO_1, CHANGE);
-   attachInterrupt(digitalPinToInterrupt(18), ISR_INTO_2, CHANGE);
+   sensor3_flag=0;
+   
+   attachInterrupt(digitalPinToInterrupt(sensor1_out), ISR_INTO_1, CHANGE);
+   attachInterrupt(digitalPinToInterrupt(sensor2_out), ISR_INTO_2, CHANGE);
+   attachInterrupt(digitalPinToInterrupt(sensor3_out), ISR_INTO_3, CHANGE);
+   
    timer_for_sensor_1_init();
 }
 
@@ -155,6 +164,10 @@ void ISR_INTO_1()
 void ISR_INTO_2()
 {
   sen2_counter++;
+}
+void ISR_INTO_3()
+{
+  sen3_counter++;
 }
  
 void timer_for_sensor_1_init(void)
@@ -237,6 +250,40 @@ sensor2_flag++;
   }
   
 sen2_counter=0; // reset counter
+/*****************************************/
+sensor3_flag++;
+ if(sensor3_flag==1)
+ {
+    sen3_counter=0;
+ }
+ else if(sensor3_flag==2)
+ {
+  digitalWrite(sensor3_s2,LOW);
+  digitalWrite(sensor3_s3,LOW); 
+  sensor_countR[2]=sen3_counter/1.051;
+  digitalWrite(sensor3_s2,HIGH);
+  digitalWrite(sensor3_s3,HIGH);   
+ }
+ else if(sensor3_flag==3)
+  {
+   sensor_countG[2]=sen3_counter/1.0157;
+   digitalWrite(sensor3_s2,LOW);
+   digitalWrite(sensor3_s3,HIGH); 
+ 
+  }
+ else if(sensor3_flag==4)
+ {
+   sensor_countB[2]=sen3_counter/1.114;
+   digitalWrite(sensor3_s2,LOW);
+   digitalWrite(sensor3_s3,LOW);
+ }
+ else
+ {
+   sensor3_flag=0; 
+   TIMSK2 = 0x00;
+  }
+  
+sen3_counter=0; // reset counter
 }
 
 void setColorForSensor(int sensorNumber, int red, int green, int blue)
@@ -471,8 +518,10 @@ void loop()
   //TCS_2();
   setColorForSensor(1, (int)sensor_countR[0], (int)sensor_countG[0], (int)sensor_countB[0]);
   setColorForSensor(2, (int)sensor_countR[1], (int)sensor_countG[1], (int)sensor_countB[1]);
+  setColorForSensor(3, (int)sensor_countR[2], (int)sensor_countG[2], (int)sensor_countB[2]);
   printColor(1, sensorColors[0]);
   printColor(2, sensorColors[1]);
+  printColor(3, sensorColors[2]);
   Serial.println("");
   if(DEBUG_MODE)
   {
