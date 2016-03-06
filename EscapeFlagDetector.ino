@@ -1,5 +1,6 @@
 #include <Event.h>
 #include <Timer.h>
+#include <Keypad.h>
 /****** Preprocessor Macros *****/
 // Debug settings
 #define DEBUG_MODE 0
@@ -46,7 +47,6 @@ int sensor1_s1=5;
 int sensor1_s2=6;
 int sensor1_s3=7;
 int sensor1_out=3;
-int sensor1_LED=11;
 
 // Color Sensor Two (Looking for orange)
 int sensor2_s0=22;
@@ -54,7 +54,6 @@ int sensor2_s1=24;
 int sensor2_s2=26;
 int sensor2_s3=28;
 int sensor2_out=18;
-//int sensor2_LED=18;
 
 // Color Sensor Three (Looking for green)
 int sensor3_s0=32;
@@ -62,7 +61,6 @@ int sensor3_s1=34;
 int sensor3_s2=36;
 int sensor3_s3=38;
 int sensor3_out=19;
-//int sensor3_LED=11;
 
 // Color Sensor Four (Looking for purple)
 int sensor4_s0=42;
@@ -70,15 +68,13 @@ int sensor4_s1=44;
 int sensor4_s2=46;
 int sensor4_s3=48;
 int sensor4_out=21;
-//int sensor4_LED=11;
 
 // Color Sensor Five (Looking for blue)
 int sensor5_s0=23;
 int sensor5_s1=25;
 int sensor5_s2=27;
 int sensor5_s3=29;
-int sensor5_out=31;
-int sensor5_LED=11;
+int sensor5_out=20;
 
 // sensor statuses - initialized as all seeing no specific color
 int sensorColors[] = {NONE, NONE, NONE, NONE, NONE};
@@ -94,6 +90,8 @@ int sensor3_flag=0;
 int sen3_counter=0;
 int sensor4_flag=0;
 int sen4_counter=0;
+int sensor5_flag=0;
+int sen5_counter=0;
 int sensor_countR[5] = {0,0,0,0,0}; // red counts for sensors 1-5
 int sensor_countG[5] = {0,0,0,0,0};
 int sensor_countB[5] = {0,0,0,0,0};
@@ -102,7 +100,23 @@ int sensor_countB[5] = {0,0,0,0,0};
 int relayPin = 11; // don't use pin 12 - that's the reset pin!!!!
 int recalibrated = false;
 
-int ledPin = 52;
+int ledPin = 52; // pin that controls the lights for the sensors
+
+// KEYPAD
+const byte ROWS = 4; //four rows
+const byte COLS = 3; //three columns
+char keys[ROWS][COLS] = {
+  {'1','2','3'},
+  {'4','5','6'},
+  {'7','8','9'},
+  {'*','0','#'}
+};
+byte rowPins[ROWS] = {45, 43, 41, 39}; //connect to the row pinouts of the keypad
+byte colPins[COLS] = {51, 49, 47}; //connect to the column pinouts of the keypad
+
+Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
+int firstTime = true;
+
 
 void setup()
  {
@@ -119,7 +133,7 @@ void setup()
  pinMode(sensor1_s1,OUTPUT); 
  pinMode(sensor1_s2,OUTPUT);
  pinMode(sensor1_s3,OUTPUT);
- pinMode(sensor1_LED,OUTPUT); 
+ 
  // Sensor 2
  pinMode(sensor2_s0,OUTPUT);
  pinMode(sensor2_s1,OUTPUT); 
@@ -143,7 +157,7 @@ void setup()
  pinMode(sensor5_s1,OUTPUT); 
  pinMode(sensor5_s2,OUTPUT);
  pinMode(sensor5_s3,OUTPUT);
- pinMode(sensor5_LED,OUTPUT); 
+ //pinMode(sensor5_LED,OUTPUT); 
  
  // Relay
  pinMode(relayPin, OUTPUT);
@@ -161,16 +175,20 @@ void TCS()
    digitalWrite(sensor3_s0,LOW);
    digitalWrite(sensor4_s1,HIGH);
    digitalWrite(sensor4_s0,LOW);
+   digitalWrite(sensor5_s1,HIGH);
+   digitalWrite(sensor5_s0,LOW);
    
    sensor1_flag=0;
    sensor2_flag=0;
    sensor3_flag=0;
    sensor4_flag=0;
+   sensor5_flag=0;
    
    attachInterrupt(digitalPinToInterrupt(sensor1_out), ISR_INTO_1, CHANGE);
    attachInterrupt(digitalPinToInterrupt(sensor2_out), ISR_INTO_2, CHANGE);
    attachInterrupt(digitalPinToInterrupt(sensor3_out), ISR_INTO_3, CHANGE);
    attachInterrupt(digitalPinToInterrupt(sensor4_out), ISR_INTO_4, CHANGE);
+   attachInterrupt(digitalPinToInterrupt(sensor5_out), ISR_INTO_5, CHANGE);
    
    timer_for_sensor_1_init();
 }
@@ -190,6 +208,10 @@ void ISR_INTO_3()
 void ISR_INTO_4()
 {
   sen4_counter++;
+}
+void ISR_INTO_5()
+{
+  sen5_counter++;
 }
  
 void timer_for_sensor_1_init(void)
@@ -340,6 +362,41 @@ sensor4_flag++;
   }
   
 sen4_counter=0; // reset counter
+
+/*****************************************/
+sensor5_flag++;
+ if(sensor5_flag==1)
+ {
+    sen5_counter=0;
+ }
+ else if(sensor5_flag==2)
+ {
+  digitalWrite(sensor5_s2,LOW);
+  digitalWrite(sensor5_s3,LOW); 
+  sensor_countR[4]=sen5_counter/1.051;
+  digitalWrite(sensor5_s2,HIGH);
+  digitalWrite(sensor5_s3,HIGH);   
+ }
+ else if(sensor5_flag==3)
+  {
+   sensor_countG[4]=sen5_counter/1.0157;
+   digitalWrite(sensor5_s2,LOW);
+   digitalWrite(sensor5_s3,HIGH); 
+ 
+  }
+ else if(sensor5_flag==4)
+ {
+   sensor_countB[4]=sen5_counter/1.114;
+   digitalWrite(sensor5_s2,LOW);
+   digitalWrite(sensor5_s3,LOW);
+ }
+ else
+ {
+   sensor5_flag=0; 
+   TIMSK2 = 0x00;
+  }
+  
+sen5_counter=0; // reset counter
 }
 
 void setColorForSensor(int sensorNumber, int red, int green, int blue)
@@ -500,7 +557,7 @@ boolean isCorrectSolution()
    }
    if(!(sensorColors[4] == sensorColorsSolution[4]))
    {
-     //return false;
+     return false;
    }
    
    // All sensors are reading the correct colors
@@ -602,62 +659,7 @@ void timerExpired()
   Serial.println("Timer expired."); 
 }
 
-void loop()
- {
-  timer.update();
-  TCS();
-  setColorForSensor(1, (int)sensor_countR[0], (int)sensor_countG[0], (int)sensor_countB[0]);
-  setColorForSensor(2, (int)sensor_countR[1], (int)sensor_countG[1], (int)sensor_countB[1]);
-  setColorForSensor(3, (int)sensor_countR[2], (int)sensor_countG[2], (int)sensor_countB[2]);
-  setColorForSensor(4, (int)sensor_countR[3], (int)sensor_countG[3], (int)sensor_countB[3]);
-  if(!timerActive)
-  {
-    if(recalibrated)
-    {
-       delay(3000);
-       recalibrated = false; 
-    }
-    
-    printColor(1, sensorColors[0]);
-    printRGB(1);
-    printColor(2, sensorColors[1]);
-    printRGB(2);
-    printColor(3, sensorColors[2]);
-    printRGB(3);
-    printColor(4, sensorColors[3]);
-    printRGB(4);
-    Serial.println("");
-    if(DEBUG_MODE)
-    {
-       if(sensorColors[0] == RED)
-       {
-          Serial.println("*******************************************");
-          Serial.println("*******************************************");
-          Serial.println("*******************************************");
-          Serial.println("\n\n!!!RED FLAG DETECTED IN FRONT OF SENSOR!!!\n\n");
-          Serial.println("*******************************************");
-          Serial.println("*******************************************");
-          Serial.print("red=");
-          Serial.println(sensor_countR[0],DEC);
-          Serial.print("green=");
-          Serial.println(sensor_countG[0],DEC);
-          Serial.print("blue=");
-          Serial.println(sensor_countB[0],DEC);
-       }
-     }
-     delay(1000);  
-  
-     if(isCorrectSolution())
-     {
-       unlockDoor(); 
-       printRGB(1);
-       printRGB(2);
-       printRGB(3);
-       printRGB(4);
-       printRGB(5);
-     }
-  }   
- }
+
  
  void printColor(int sensor, int color)
  {
@@ -717,4 +719,108 @@ void loop()
      digitalWrite(ledPin, LOW);
      timerActive = false;
    }
+ }
+ 
+ void getNumbersFromKeypad()
+ {
+   int numNumbers = 0;
+   while(1)
+   {
+     char key = keypad.getKey();
+     if (key)
+     {
+      Serial.println(key);
+      numNumbers++;
+      if(numNumbers > 5)
+      {
+        Serial.println("returning");
+        break;
+        return;
+      }
+     }
+   }
+   
+ }
+ 
+ void disableColorSensors()
+ {
+   detachInterrupt(digitalPinToInterrupt(sensor1_out));
+   detachInterrupt(digitalPinToInterrupt(sensor2_out));
+   detachInterrupt(digitalPinToInterrupt(sensor3_out));
+   detachInterrupt(digitalPinToInterrupt(sensor4_out));
+   detachInterrupt(digitalPinToInterrupt(sensor5_out)); 
+ }
+ 
+ void loop()
+ {
+  timer.update();
+  
+  
+  
+  // Test for kepypad
+  if(firstTime== true)
+  {
+    //disableColorSensors();
+    Serial.println("entering keypad function");
+    //getNumbersFromKeypad();
+    firstTime=false;
+  }
+  TCS();
+  setColorForSensor(1, (int)sensor_countR[0], (int)sensor_countG[0], (int)sensor_countB[0]);
+  setColorForSensor(2, (int)sensor_countR[1], (int)sensor_countG[1], (int)sensor_countB[1]);
+  setColorForSensor(3, (int)sensor_countR[2], (int)sensor_countG[2], (int)sensor_countB[2]);
+  setColorForSensor(4, (int)sensor_countR[3], (int)sensor_countG[3], (int)sensor_countB[3]);
+  setColorForSensor(5, (int)sensor_countR[4], (int)sensor_countG[4], (int)sensor_countB[4]);
+  if(!timerActive)
+  {
+    if(recalibrated)
+    {
+       delay(3000);
+       recalibrated = false; 
+    }
+    
+    if(!DEBUG_MODE)
+    {
+      printColor(1, sensorColors[0]);
+      printRGB(1);
+      printColor(2, sensorColors[1]);
+      printRGB(2);
+      printColor(3, sensorColors[2]);
+      printRGB(3);
+      printColor(4, sensorColors[3]);
+      printRGB(4);
+      printColor(5, sensorColors[4]);
+      printRGB(5);
+      Serial.println("");
+    }
+    if(DEBUG_MODE)
+    {
+       if(sensorColors[0] == RED)
+       {
+          Serial.println("*******************************************");
+          Serial.println("*******************************************");
+          Serial.println("*******************************************");
+          Serial.println("\n\n!!!RED FLAG DETECTED IN FRONT OF SENSOR!!!\n\n");
+          Serial.println("*******************************************");
+          Serial.println("*******************************************");
+          Serial.print("red=");
+          Serial.println(sensor_countR[0],DEC);
+          Serial.print("green=");
+          Serial.println(sensor_countG[0],DEC);
+          Serial.print("blue=");
+          Serial.println(sensor_countB[0],DEC);
+       }
+     }
+     delay(1000);  
+  
+     if(isCorrectSolution())
+     {
+       unlockDoor(); 
+       printRGB(1);
+       printRGB(2);
+       printRGB(3);
+       printRGB(4);
+       printRGB(5);
+     }
+  }   
  }
