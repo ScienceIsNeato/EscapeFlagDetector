@@ -22,14 +22,15 @@ int MAX_COLOR_TOLERANCE = 15;
 // row 0 corresponds to RED flag, row 1 to ORANGE, etc.
 // col 0=red, col1=green, col2=blue
 int flagColors[5][3] = { 
-  {176,  42,  37  }, // RED
-  {79,  46,  42  }, // ORANGE 
-  {39,  51,  43  }, // GREEN    
-  {49,  47,  63  }, // PURPLE 
-  {38,  50, 70  } // BLUE
+  {60,  30,  32  }, // RED
+  {54,  34,  30  }, // ORANGE 
+  {27,  37,  30  }, // GREEN    
+  {30,  31,  41  }, // PURPLE 
+  {31,  39, 52  } // BLUE
 };
 
 /***** GLOBAL VARIABLES *****/
+boolean isDoorLocked = false;
 const int buttonPin = 2;     // the number of the big red button pin
 Timer timer; // timer for recalibrating the sensors
 
@@ -100,7 +101,7 @@ int sensor_countB[5] = {0,0,0,0,0};
 int relayPin = 11; // don't use pin 12 - that's the reset pin!!!!
 int recalibrated = false;
 
-int ledPin = 52; // pin that controls the lights for the sensors
+int ledPin = 13; // pin that controls the lights for the sensors
 
 // KEYPAD
 const byte ROWS = 4; //four rows
@@ -111,11 +112,14 @@ char keys[ROWS][COLS] = {
   {'7','8','9'},
   {'*','0','#'}
 };
-byte rowPins[ROWS] = {45, 43, 41, 39}; //connect to the row pinouts of the keypad
-byte colPins[COLS] = {51, 49, 47}; //connect to the column pinouts of the keypad
+byte rowPins[ROWS] = {43, 45, 47, 49}; //connect to the row pinouts of the keypad
+byte colPins[COLS] = {51, 39, 41}; //connect to the column pinouts of the keypad
 
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 int firstTime = true;
+
+char keypadSequence[20];
+int keypadSequenceLength = 0;
 
 
 void setup()
@@ -164,6 +168,7 @@ void setup()
  digitalWrite(relayPin, LOW); //disconnect the relay 
  
  pinMode(ledPin, OUTPUT);
+ analogWrite(ledPin, 175);
 }
 void TCS()
 {
@@ -224,7 +229,7 @@ void timer_for_sensor_1_init(void)
 
 ISR(TIMER2_OVF_vect, ISR_NOBLOCK)//the timer 2, 10ms interrupt overflow again. Internal overflow interrupt executive function
 {
-  
+ getNumFromKeypad();
  TCNT2=100;
  sensor1_flag++;
  if(sensor1_flag==1)
@@ -577,7 +582,7 @@ void pin_ISR() {
     }
     int dunno = timer.after(timeWindow, timerExpired);
     buttonCnt = 1;
-    lockDoor();
+    //lockDoor();
   }
   else
   {
@@ -596,6 +601,7 @@ void pin_ISR() {
           Serial.println(" times.");
           Serial.print("Button pushed! elapsed time =");
           Serial.println(elapsedTime);
+          unlockDoor();
         }
         if(buttonCnt > 5)
         {
@@ -707,120 +713,164 @@ void timerExpired()
  {
    // Lock the door by activating the relay
    digitalWrite(relayPin, HIGH);
-   digitalWrite(ledPin, HIGH);
+   //analogWrite(ledPin, 175);
+   isDoorLocked = true;
+   Serial.println("Locking door.");
  }
  
  void unlockDoor()
  {
    // Unlock the door by deactivating the relay
-   if(!timerActive)
-   {
+   //if(!timerActive)
+   //{
      digitalWrite(relayPin, LOW);
-     digitalWrite(ledPin, LOW);
+     //analogWrite(ledPin, 0);
      timerActive = false;
-   }
+     isDoorLocked = false;
+     Serial.println("Unlocking door.");
+   //}
  }
  
- void getNumbersFromKeypad()
- {
+void getNumbersFromKeypad()
+{
    int numNumbers = 0;
    while(1)
    {
      char key = keypad.getKey();
      if (key)
      {
-      Serial.println(key);
+       keypadSequence[keypadSequenceLength]=key;
+      Serial.println("NUMPADWHOA sequence is ");
+      Serial.println(keypadSequence);
+      keypadSequenceLength++;
       numNumbers++;
       if(numNumbers > 5)
       {
         Serial.println("returning");
+        isDoorLocked=true;
         break;
         return;
       }
-     }
-   }
-   
- }
+    }
+  } 
+}
+
+void getNumFromKeypad()
+{
+  char key = keypad.getKey();
+  if(key)
+  {
+    keypadSequence[keypadSequenceLength]=key;
+    keypadSequenceLength++;
+    Serial.println("NUMPAD sequence is ");
+    Serial.println(keypadSequence);
+  } 
+}
+
+void checkKeypad()
+{
+  boolean codeEntered = true;
+  boolean recalibrate = true;
+  char solution[5] = {'4','9','8','3','#'};
+  int index = 0;
+  
+  // First check to see if we're getting a recalibrate command
+  if(!isDoorLocked)
+  {
+    if(keypadSequenceLength > 2)
+    {
+      for(int cnt = keypadSequenceLength - 3; cnt <keypadSequenceLength; cnt++)
+      {
+        if(keypadSequence[cnt]!='*')
+        {
+          recalibrate=false;
+        }
+      }
+      
+      if(recalibrate)
+      {
+        recalibrateSensors();
+        keypadSequenceLength=0;
+      }
+    }
+  
+  
+    if(keypadSequenceLength > 4)
+    {
+      for(int cnt = keypadSequenceLength - 5; cnt <keypadSequenceLength; cnt++)
+      {
+        if(solution[index]!=keypadSequence[cnt])
+        {
+          codeEntered=false;
+          Serial.println("false");
+        }
+        Serial.print("sln: ");
+        Serial.print(solution[index]);
+        Serial.print("obs: ");
+        Serial.println(keypadSequence[cnt]);
+        index++; 
+      }
+  
+      if(codeEntered)
+      {
+        lockDoor();
+        keypadSequenceLength=0;
+      }
+    }
+  } 
+}
  
- void disableColorSensors()
- {
-   detachInterrupt(digitalPinToInterrupt(sensor1_out));
-   detachInterrupt(digitalPinToInterrupt(sensor2_out));
-   detachInterrupt(digitalPinToInterrupt(sensor3_out));
-   detachInterrupt(digitalPinToInterrupt(sensor4_out));
-   detachInterrupt(digitalPinToInterrupt(sensor5_out)); 
- }
  
  void loop()
  {
-  timer.update();
+  timer.update();  
   
-  
-  
-  // Test for kepypad
-  if(firstTime== true)
+  if(1)
   {
-    //disableColorSensors();
-    Serial.println("entering keypad function");
-    //getNumbersFromKeypad();
-    firstTime=false;
+    getNumFromKeypad();
+    checkKeypad();
   }
-  TCS();
-  setColorForSensor(1, (int)sensor_countR[0], (int)sensor_countG[0], (int)sensor_countB[0]);
-  setColorForSensor(2, (int)sensor_countR[1], (int)sensor_countG[1], (int)sensor_countB[1]);
-  setColorForSensor(3, (int)sensor_countR[2], (int)sensor_countG[2], (int)sensor_countB[2]);
-  setColorForSensor(4, (int)sensor_countR[3], (int)sensor_countG[3], (int)sensor_countB[3]);
-  setColorForSensor(5, (int)sensor_countR[4], (int)sensor_countG[4], (int)sensor_countB[4]);
-  if(!timerActive)
-  {
-    if(recalibrated)
-    {
-       delay(3000);
-       recalibrated = false; 
-    }
-    
-    if(!DEBUG_MODE)
-    {
-      printColor(1, sensorColors[0]);
-      printRGB(1);
-      printColor(2, sensorColors[1]);
-      printRGB(2);
-      printColor(3, sensorColors[2]);
-      printRGB(3);
-      printColor(4, sensorColors[3]);
-      printRGB(4);
-      printColor(5, sensorColors[4]);
-      printRGB(5);
-      Serial.println("");
-    }
-    if(DEBUG_MODE)
-    {
-       if(sensorColors[0] == RED)
-       {
-          Serial.println("*******************************************");
-          Serial.println("*******************************************");
-          Serial.println("*******************************************");
-          Serial.println("\n\n!!!RED FLAG DETECTED IN FRONT OF SENSOR!!!\n\n");
-          Serial.println("*******************************************");
-          Serial.println("*******************************************");
-          Serial.print("red=");
-          Serial.println(sensor_countR[0],DEC);
-          Serial.print("green=");
-          Serial.println(sensor_countG[0],DEC);
-          Serial.print("blue=");
-          Serial.println(sensor_countB[0],DEC);
-       }
-     }
-     delay(1000);  
   
-     if(isCorrectSolution())
-     {
-       unlockDoor(); 
-       printRGB(1);
-       printRGB(2);
-       printRGB(3);
-       printRGB(4);
-       printRGB(5);
-     }
-  }   
+  if(isDoorLocked)
+  {
+    TCS();
+    setColorForSensor(1, (int)sensor_countR[0], (int)sensor_countG[0], (int)sensor_countB[0]);
+    setColorForSensor(2, (int)sensor_countR[1], (int)sensor_countG[1], (int)sensor_countB[1]);
+    setColorForSensor(3, (int)sensor_countR[2], (int)sensor_countG[2], (int)sensor_countB[2]);
+    setColorForSensor(4, (int)sensor_countR[3], (int)sensor_countG[3], (int)sensor_countB[3]);
+    setColorForSensor(5, (int)sensor_countR[4], (int)sensor_countG[4], (int)sensor_countB[4]);
+    if(!timerActive)
+    {
+      if(recalibrated)
+      {
+         delay(3000);
+         recalibrated = false; 
+      }
+      
+      if(!DEBUG_MODE)
+      {
+        printColor(1, sensorColors[0]);
+        printRGB(1);
+        printColor(2, sensorColors[1]);
+        printRGB(2);
+        printColor(3, sensorColors[2]);
+        printRGB(3);
+        printColor(4, sensorColors[3]);
+        printRGB(4);
+        printColor(5, sensorColors[4]);
+        printRGB(5);
+        Serial.println("");
+       }
+       delay(1000);  
+       if(isCorrectSolution())
+       {
+         unlockDoor(); 
+         printRGB(1);
+         printRGB(2);
+         printRGB(3);
+         printRGB(4);
+         printRGB(5);
+       }
+    }
+  }  
  }
