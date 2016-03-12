@@ -33,6 +33,7 @@ int flagColors[5][3] = {
 boolean isDoorLocked = false;
 const int buttonPin = 2;     // the number of the big red button pin
 Timer timer; // timer for recalibrating the sensors
+Timer motionSensorTimer;
 
 long startTime;                    // start time for stop watch
 long elapsedTime;                  // elapsed time for stop watch
@@ -57,24 +58,24 @@ int sensor2_s3=28;
 int sensor2_out=18;
 
 // Color Sensor Three (Looking for green)
-int sensor3_s0=32;
-int sensor3_s1=34;
-int sensor3_s2=36;
-int sensor3_s3=38;
+int sensor3_s0=30;
+int sensor3_s1=32;
+int sensor3_s2=34;
+int sensor3_s3=36;
 int sensor3_out=19;
 
 // Color Sensor Four (Looking for purple)
-int sensor4_s0=42;
-int sensor4_s1=44;
-int sensor4_s2=46;
-int sensor4_s3=48;
+int sensor4_s0=38;
+int sensor4_s1=40;
+int sensor4_s2=42;
+int sensor4_s3=44;
 int sensor4_out=21;
 
 // Color Sensor Five (Looking for blue)
-int sensor5_s0=23;
-int sensor5_s1=25;
-int sensor5_s2=27;
-int sensor5_s3=29;
+int sensor5_s0=46;
+int sensor5_s1=48;
+int sensor5_s2=50;
+int sensor5_s3=52;
 int sensor5_out=20;
 
 // sensor statuses - initialized as all seeing no specific color
@@ -112,8 +113,8 @@ char keys[ROWS][COLS] = {
   {'7','8','9'},
   {'*','0','#'}
 };
-byte rowPins[ROWS] = {43, 45, 47, 49}; //connect to the row pinouts of the keypad
-byte colPins[COLS] = {51, 39, 41}; //connect to the column pinouts of the keypad
+byte rowPins[ROWS] = {45, 47, 49, 51}; //connect to the row pinouts of the keypad
+byte colPins[COLS] = {53, 41, 43}; //connect to the column pinouts of the keypad
 
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 int firstTime = true;
@@ -121,6 +122,11 @@ int firstTime = true;
 char keypadSequence[20];
 int keypadSequenceLength = 0;
 
+// Motion sensor
+int motionSensorPin = 1;
+int motionVal = 0;
+const int motionSensorDetectionInterval = 250; // poll IR sensor every quarter second
+const int motionThreshold = 200; // values above this will trigger door unlock
 
 void setup()
  {
@@ -169,6 +175,8 @@ void setup()
  
  pinMode(ledPin, OUTPUT);
  analogWrite(ledPin, 175);
+ 
+ motionSensorTimer.every(motionSensorDetectionInterval, checkMotionSensor);
 }
 void TCS()
 {
@@ -819,11 +827,30 @@ void checkKeypad()
     }
   } 
 }
- 
+
+void checkMotionSensor()
+{
+  // Don't bother checking value if door isn't locked 
+  if(isDoorLocked)
+  {
+    motionVal=analogRead(motionSensorPin);
+    if(DEBUG_MODE)
+    {
+      Serial.print("distance reading:");
+      Serial.println(motionVal);
+    }
+    if(motionVal > motionThreshold)
+    {
+      unlockDoor(); 
+      Serial.println("Unlocking door due to motion detected in locked room!");
+    }
+  }
+}
  
  void loop()
  {
-  timer.update();  
+  timer.update(); 
+  motionSensorTimer.update(); 
   
   if(1)
   {
