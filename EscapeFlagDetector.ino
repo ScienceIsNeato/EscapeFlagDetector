@@ -34,6 +34,7 @@ boolean isDoorLocked = false;
 const int buttonPin = 2;     // the number of the big red button pin
 Timer timer; // timer for recalibrating the sensors
 Timer motionSensorTimer;
+Timer motionSensorDelayTimer; // timer to keep track of the delay on the motion sensor
 
 long startTime;                    // start time for stop watch
 long elapsedTime;                  // elapsed time for stop watch
@@ -127,6 +128,8 @@ int motionSensorPin = 1;
 int motionVal = 0;
 const int motionSensorDetectionInterval = 250; // poll IR sensor every quarter second
 const int motionThreshold = 200; // values above this will trigger door unlock
+const int motionSensorDelayWindow=7000; // after the door is locked, ignore motion sensor actions for 7 seconds
+boolean motionSensorActive = false;
 
 void setup()
  {
@@ -486,41 +489,6 @@ void setColorForSensor(int sensorNumber, int red, int green, int blue)
   return; 
 }
 
-//int rollingAbsDiff(int expVal, int obsVal, int maxRange)
-//{
-//  // This function take in an experimental value and an observed value and returns the difference
-//  // of the shortest rolling difference from eihter direction (example, if maxRange = 255, the obsVal is 254, and the expVal is 3, then
-//  // the return would be 5 instead of 252)
-//  
-//  // THIS FUNCTION IS WRONG!! Can't simply subtract. Need to test in isolation before rolling in. 
-//  
-//  int leftDiff;
-//  int rightDiff;
-//  
-//  leftDiff = expVal - obsVal;
-//  rightDiff = obsVal - expVal;
-//  
-//  if(leftDiff < 0)
-//  {
-//    leftDiff+=maxRange;  
-//  }
-//  
-//  if(rightDiff < 0)
-//  {
-//    rightDiff+=maxRange;  
-//  }
-//  
-//  if(leftDiff < rightDiff)
-//  {
-//    return leftDiff;  
-//  }
-//  else
-//  {
-//    return rightDiff;  
-//  }
-//  
-//}
-
 int closestMatchingColor(int absDiff, int &bestAbsDiff, int COLOR, int currentBestMatch)
 {
   // Function takes in the absdiff between the curretn color and a solution color, as well as the
@@ -547,11 +515,11 @@ int closestMatchingColor(int absDiff, int &bestAbsDiff, int COLOR, int currentBe
     return currentBestMatch;  
   }
 }
+
 boolean isCorrectSolution()
 {
    // This function checks the detected colors against the solution to the puzzle
-   // and returns true if the puzzle has been solved
-   
+   // and returns true if the puzzle has been solved   
    if(!(sensorColors[0] == sensorColorsSolution[0]))
    {
      return false;
@@ -577,8 +545,8 @@ boolean isCorrectSolution()
    return true;
 }
 
-void pin_ISR() {
-  
+void pin_ISR() 
+{  
   if(!timerActive)
   {
     startTime = millis();  
@@ -633,33 +601,6 @@ void recalibrateSensors()
   
   long startTime = millis();
   long delayTime = 0;
-//  while(delayTime < 3000)
-//  {
-//    delayTime = millis() - startTime;
-//    
-//    if(delayTime < 1000)
-//    {
-//      digitalWrite(ledPin, LOW);
-//    }  
-//    else
-//    {
-//      if(delayTime < 1500)
-//      {
-//        digitalWrite(ledPin, HIGH);
-//      }
-//      else
-//      {
-//        if(delayTime < 1800)
-//        {
-//          digitalWrite(ledPin, LOW);
-//        }
-//        else
-//        {
-//          digitalWrite(ledPin, HIGH);
-//        }
-//      }
-//    }
-//  }
   
   timerActive = false;
   Serial.println("RECALIBRATED!**************");
@@ -672,11 +613,9 @@ void timerExpired()
   timerActive = false;
   Serial.println("Timer expired."); 
 }
-
-
  
- void printColor(int sensor, int color)
- {
+void printColor(int sensor, int color)
+{
   
   Serial.print("*** Flag for sensor ");
   Serial.print(sensor);
@@ -719,6 +658,30 @@ void timerExpired()
  
  void lockDoor()
  {
+   // Reset the solution
+   sensorColors[0]=NONE;
+   sensorColors[1]=NONE;
+   sensorColors[2]=NONE;
+   sensorColors[3]=NONE;
+   sensorColors[4]=NONE;
+   sensor_countR[0]=NONE;
+   sensor_countR[1]=NONE;
+   sensor_countR[2]=NONE;
+   sensor_countR[3]=NONE;
+   sensor_countR[4]=NONE;
+   sensor_countG[0]=NONE;
+   sensor_countG[1]=NONE;
+   sensor_countG[2]=NONE;
+   sensor_countG[3]=NONE;
+   sensor_countG[4]=NONE;
+   sensor_countB[0]=NONE;
+   sensor_countB[1]=NONE;
+   sensor_countB[2]=NONE;
+   sensor_countB[3]=NONE;
+   sensor_countB[4]=NONE;
+  
+   // Start timer for motio sensor
+   motionSensorDelayTimer.after(motionSensorDelayWindow, activateMotionSensor);
    // Lock the door by activating the relay
    digitalWrite(relayPin, HIGH);
    //analogWrite(ledPin, 175);
@@ -736,6 +699,7 @@ void timerExpired()
      timerActive = false;
      isDoorLocked = false;
      Serial.println("Unlocking door.");
+     deactivateMotionSensor();
    //}
  }
  
@@ -833,24 +797,38 @@ void checkMotionSensor()
   // Don't bother checking value if door isn't locked 
   if(isDoorLocked)
   {
-    motionVal=analogRead(motionSensorPin);
-    if(DEBUG_MODE)
+    if(motionSensorActive)
     {
-      Serial.print("distance reading:");
-      Serial.println(motionVal);
-    }
-    if(motionVal > motionThreshold)
-    {
-      unlockDoor(); 
-      Serial.println("Unlocking door due to motion detected in locked room!");
+      motionVal=analogRead(motionSensorPin);
+      if(DEBUG_MODE)
+      {
+        Serial.print("distance reading:");
+        Serial.println(motionVal);
+      }
+      if(motionVal > motionThreshold)
+      {
+        unlockDoor(); 
+        Serial.println("Unlocking door due to motion detected in locked room!");
+      }
     }
   }
+}
+
+void activateMotionSensor()
+{
+  motionSensorActive=true; 
+}
+
+void deactivateMotionSensor()
+{
+  motionSensorActive=false; 
 }
  
  void loop()
  {
   timer.update(); 
   motionSensorTimer.update(); 
+  
   
   if(1)
   {
@@ -860,6 +838,7 @@ void checkMotionSensor()
   
   if(isDoorLocked)
   {
+    motionSensorDelayTimer.update();
     TCS();
     setColorForSensor(1, (int)sensor_countR[0], (int)sensor_countG[0], (int)sensor_countB[0]);
     setColorForSensor(2, (int)sensor_countR[1], (int)sensor_countG[1], (int)sensor_countB[1]);
