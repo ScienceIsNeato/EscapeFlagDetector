@@ -22,19 +22,20 @@ int MAX_COLOR_TOLERANCE = 15;
 // row 0 corresponds to RED flag, row 1 to ORANGE, etc.
 // col 0=red, col1=green, col2=blue
 int flagColors[5][3] = { 
-  {60,  30,  32  }, // RED
-  {54,  34,  30  }, // ORANGE 
-  {27,  37,  30  }, // GREEN    
-  {30,  31,  41  }, // PURPLE 
-  {31,  39, 52  } // BLUE
+  {60,  29,  29    }, // RED
+  {53,  32,  29  }, // ORANGE 
+  {27,  34,  26  }, // GREEN    
+  {35,  34,  42  }, // PURPLE 
+  {29,  38, 50  } // BLUE
 };
 
 /***** GLOBAL VARIABLES *****/
 boolean isDoorLocked = false;
 const int buttonPin = 2;     // the number of the big red button pin
-Timer timer; // timer for recalibrating the sensors
+
 Timer motionSensorTimer;
 Timer motionSensorDelayTimer; // timer to keep track of the delay on the motion sensor
+Timer recalibrationTimer; // delay for recalibration
 
 long startTime;                    // start time for stop watch
 long elapsedTime;                  // elapsed time for stop watch
@@ -120,8 +121,7 @@ byte colPins[COLS] = {53, 41, 43}; //connect to the column pinouts of the keypad
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 int firstTime = true;
 
-char keypadSequence[20];
-int keypadSequenceLength = 0;
+String keypadSequence = "0000000";
 
 // Motion sensor
 int motionSensorPin = 1;
@@ -130,6 +130,9 @@ const int motionSensorDetectionInterval = 250; // poll IR sensor every quarter s
 const int motionThreshold = 200; // values above this will trigger door unlock
 const int motionSensorDelayWindow=7000; // after the door is locked, ignore motion sensor actions for 7 seconds
 boolean motionSensorActive = false;
+
+// Recalibration Timer
+const int recalibrationDelay = 3000; // let sensors sense for 3 seconds before recalibrating
 
 void setup()
  {
@@ -552,13 +555,7 @@ void pin_ISR()
     startTime = millis();  
     lastButtonPush = startTime;
     timerActive = true;
-    if(DEBUG_MODE)
-    {
-      Serial.println("Timer started.");
-    }
-    int dunno = timer.after(timeWindow, timerExpired);
     buttonCnt = 1;
-    //lockDoor();
   }
   else
   {
@@ -577,14 +574,9 @@ void pin_ISR()
           Serial.println(" times.");
           Serial.print("Button pushed! elapsed time =");
           Serial.println(elapsedTime);
-          unlockDoor();
         }
-        if(buttonCnt > 5)
-        {
-          // Button has been pressed 3 times in 3 seconds - recalibrate sensors
-          recalibrateSensors();
-          timerActive = false; 
-        }
+        unlockDoor();
+        timerActive = false; 
       }
     }
   }
@@ -606,12 +598,6 @@ void recalibrateSensors()
   Serial.println("RECALIBRATED!**************");
   recalibrated = true;
   return;
-}
-
-void timerExpired()
-{
-  timerActive = false;
-  Serial.println("Timer expired."); 
 }
  
 void printColor(int sensor, int color)
@@ -702,93 +688,59 @@ void printColor(int sensor, int color)
      deactivateMotionSensor();
    //}
  }
- 
-void getNumbersFromKeypad()
-{
-   int numNumbers = 0;
-   while(1)
-   {
-     char key = keypad.getKey();
-     if (key)
-     {
-       keypadSequence[keypadSequenceLength]=key;
-      Serial.println("NUMPADWHOA sequence is ");
-      Serial.println(keypadSequence);
-      keypadSequenceLength++;
-      numNumbers++;
-      if(numNumbers > 5)
-      {
-        Serial.println("returning");
-        isDoorLocked=true;
-        break;
-        return;
-      }
-    }
-  } 
-}
 
 void getNumFromKeypad()
 {
   char key = keypad.getKey();
   if(key)
   {
-    keypadSequence[keypadSequenceLength]=key;
-    keypadSequenceLength++;
+    Serial.println("NUMPAD before sequence is ");
+    Serial.println(keypadSequence);
+
+    keypadSequence.remove(0,1);
+    keypadSequence+=key;
     Serial.println("NUMPAD sequence is ");
     Serial.println(keypadSequence);
+    checkKeypad();
   } 
 }
 
 void checkKeypad()
 {
-  boolean codeEntered = true;
-  boolean recalibrate = true;
-  char solution[5] = {'4','9','8','3','#'};
-  int index = 0;
   
   // First check to see if we're getting a recalibrate command
   if(!isDoorLocked)
   {
-    if(keypadSequenceLength > 2)
-    {
-      for(int cnt = keypadSequenceLength - 3; cnt <keypadSequenceLength; cnt++)
-      {
-        if(keypadSequence[cnt]!='*')
-        {
-          recalibrate=false;
-        }
-      }
-      
-      if(recalibrate)
-      {
-        recalibrateSensors();
-        keypadSequenceLength=0;
-      }
+    // First check to see if recalibrate command has been given
+    if(keypadSequence.endsWith("4983*#"))
+    {      
+      lockDoor();
+      // Start the recalibration timer
+      recalibrationTimer.after(recalibrationDelay, recalibrateSensors);
     }
-  
-  
-    if(keypadSequenceLength > 4)
+    else if(keypadSequence.endsWith("4983#"))
     {
-      for(int cnt = keypadSequenceLength - 5; cnt <keypadSequenceLength; cnt++)
-      {
-        if(solution[index]!=keypadSequence[cnt])
-        {
-          codeEntered=false;
-          Serial.println("false");
-        }
-        Serial.print("sln: ");
-        Serial.print(solution[index]);
-        Serial.print("obs: ");
-        Serial.println(keypadSequence[cnt]);
-        index++; 
-      }
-  
-      if(codeEntered)
-      {
-        lockDoor();
-        keypadSequenceLength=0;
-      }
+      lockDoor();
     }
+    else if(keypadSequence.endsWith("4983*1#"))
+    {
+      MAX_COLOR_TOLERANCE-=3;
+      if(MAX_COLOR_TOLERANCE < 1)
+      {
+        MAX_COLOR_TOLERANCE=3;
+      }
+      Serial.print("Changing MAX_COLOR_TOLERANCE to: ");
+      Serial.println(MAX_COLOR_TOLERANCE);
+      lockDoor();
+    }
+    else if(keypadSequence.endsWith("4983*9#"))
+    {
+      MAX_COLOR_TOLERANCE+=3;
+      Serial.print("Changing MAX_COLOR_TOLERANCE to: ");
+      Serial.println(MAX_COLOR_TOLERANCE);
+      lockDoor();
+    }
+    
   } 
 }
 
@@ -826,15 +778,10 @@ void deactivateMotionSensor()
  
  void loop()
  {
-  timer.update(); 
   motionSensorTimer.update(); 
-  
-  
-  if(1)
-  {
-    getNumFromKeypad();
-    checkKeypad();
-  }
+  recalibrationTimer.update();
+
+  getNumFromKeypad();
   
   if(isDoorLocked)
   {
