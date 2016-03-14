@@ -34,8 +34,8 @@ boolean isDoorLocked = false;
 const int buttonPin = 2;     // the number of the big red button pin
 
 Timer motionSensorTimer;
-Timer motionSensorDelayTimer; // timer to keep track of the delay on the motion sensor
 Timer recalibrationTimer; // delay for recalibration
+int motionTimerPID = 0;
 
 long startTime;                    // start time for stop watch
 long elapsedTime;                  // elapsed time for stop watch
@@ -130,6 +130,7 @@ const int motionSensorDetectionInterval = 250; // poll IR sensor every quarter s
 const int motionThreshold = 200; // values above this will trigger door unlock
 const int motionSensorDelayWindow=7000; // after the door is locked, ignore motion sensor actions for 7 seconds
 boolean motionSensorActive = false;
+long timeDoorLocked = 0;
 
 // Recalibration Timer
 const int recalibrationDelay = 3000; // let sensors sense for 3 seconds before recalibrating
@@ -667,8 +668,8 @@ void printColor(int sensor, int color)
    sensor_countB[4]=NONE;
   
    // Start timer for motio sensor
-   int pid = motionSensorDelayTimer.after(motionSensorDelayWindow, activateMotionSensor);
-   motionSensorDelayTimer.update();
+   timeDoorLocked = millis();
+   
    // Lock the door by activating the relay
    digitalWrite(relayPin, HIGH);
    isDoorLocked = true;
@@ -758,13 +759,15 @@ void checkMotionSensor()
         Serial.println("Unlocking door due to motion detected in locked room!");
       }
     }
+    else
+    {
+      // Check to see if the wait window has expired
+      if(millis() - timeDoorLocked > motionSensorDelayWindow)
+      {
+        motionSensorActive = true;
+      } 
+    }
   }
-}
-
-void activateMotionSensor()
-{
-  motionSensorActive=true;
-  Serial.println("Activating motion sensor."); 
 }
 
 void deactivateMotionSensor()
@@ -782,7 +785,6 @@ void deactivateMotionSensor()
   
   if(isDoorLocked)
   {
-    motionSensorDelayTimer.update();
     TCS();
     setColorForSensor(1, (int)sensor_countR[0], (int)sensor_countG[0], (int)sensor_countB[0]);
     setColorForSensor(2, (int)sensor_countR[1], (int)sensor_countG[1], (int)sensor_countB[1]);
