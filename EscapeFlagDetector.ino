@@ -667,26 +667,21 @@ void printColor(int sensor, int color)
    sensor_countB[4]=NONE;
   
    // Start timer for motio sensor
-   motionSensorDelayTimer.after(motionSensorDelayWindow, activateMotionSensor);
+   int pid = motionSensorDelayTimer.after(motionSensorDelayWindow, activateMotionSensor);
+   motionSensorDelayTimer.update();
    // Lock the door by activating the relay
    digitalWrite(relayPin, HIGH);
-   //analogWrite(ledPin, 175);
    isDoorLocked = true;
    Serial.println("Locking door.");
  }
  
  void unlockDoor()
  {
-   // Unlock the door by deactivating the relay
-   //if(!timerActive)
-   //{
-     digitalWrite(relayPin, LOW);
-     //analogWrite(ledPin, 0);
-     timerActive = false;
-     isDoorLocked = false;
-     Serial.println("Unlocking door.");
-     deactivateMotionSensor();
-   //}
+   digitalWrite(relayPin, LOW);
+   timerActive = false;
+   isDoorLocked = false;
+   Serial.println("Unlocking door.");
+   deactivateMotionSensor();
  }
 
 void getNumFromKeypad()
@@ -768,12 +763,14 @@ void checkMotionSensor()
 
 void activateMotionSensor()
 {
-  motionSensorActive=true; 
+  motionSensorActive=true;
+  Serial.println("Activating motion sensor."); 
 }
 
 void deactivateMotionSensor()
 {
   motionSensorActive=false; 
+  Serial.println("Deactivating motion sensor."); 
 }
  
  void loop()
